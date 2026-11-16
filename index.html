@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flashcards DS Machine Learning</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+<style>
+  :root { --bg:#f4f5f7; --card:#ffffff; --text:#1d1f23; --accent:#3556d6; --muted:#6b7280; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16181d; --card:#22252c; --text:#eceef2; --accent:#7b96ff; --muted:#9aa1ad; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    display:flex; flex-direction:column; align-items:center; padding:16px;
+  }
+  header { width:100%; max-width:480px; display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  h1 { font-size:18px; margin:0; }
+  .progress { color:var(--muted); font-size:14px; }
+  .scene { width:100%; max-width:480px; perspective:1200px; height:340px; cursor:pointer; }
+  .card {
+    position:relative; width:100%; height:100%; transition:transform .5s;
+    transform-style:preserve-3d;
+  }
+  .card.flipped { transform:rotateY(180deg); }
+  .face {
+    position:absolute; inset:0; backface-visibility:hidden; -webkit-backface-visibility:hidden;
+    background:var(--card); border-radius:16px; padding:24px;
+    box-shadow:0 4px 16px rgba(0,0,0,.12);
+    display:flex; flex-direction:column; justify-content:center; align-items:center;
+    text-align:center; overflow:auto;
+  }
+  .back { transform:rotateY(180deg); }
+  .label { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:12px; }
+  .content { font-size:18px; line-height:1.5; }
+  .hint { position:absolute; bottom:10px; font-size:12px; color:var(--muted); }
+  .controls { width:100%; max-width:480px; display:flex; gap:10px; margin-top:20px; }
+  button {
+    flex:1; padding:14px; font-size:16px; border:none; border-radius:12px;
+    background:var(--accent); color:#fff; cursor:pointer;
+  }
+  button.secondary { background:var(--card); color:var(--text); box-shadow:0 2px 8px rgba(0,0,0,.1); }
+  button:disabled { opacity:.4; }
+  .tools { margin-top:12px; display:flex; gap:10px; width:100%; max-width:480px; }
+  .done { text-align:center; margin-top:30px; color:var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Flashcards DS</h1>
+  <span class="progress" id="progress"></span>
+</header>
+
+<div class="scene" id="scene" onclick="flip()">
+  <div class="card" id="card">
+    <div class="face front">
+      <div class="label">Question</div>
+      <div class="content" id="q"></div>
+      <div class="hint">Touche pour retourner</div>
+    </div>
+    <div class="face back">
+      <div class="label">Réponse</div>
+      <div class="content" id="a"></div>
+      <div class="hint">Touche pour retourner</div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="secondary" id="prev" onclick="go(-1)">← Précédente</button>
+  <button id="next" onclick="go(1)">Suivante →</button>
+</div>
+
+<div class="tools">
+  <button class="secondary" onclick="shuffle()">Mélanger</button>
+  <button class="secondary" onclick="restart()">Recommencer</button>
+</div>
+
+<script>
+const CARDS = [
+  { q: "Erreur d'estimation ?", a: "$R(\\hat f) - \\min_{f\\in\\mathcal F} R(f)$" },
+  { q: "Erreur d'approximation ?", a: "$\\min_{f\\in\\mathcal F} R(f) - \\min_{h:\\mathcal X\\to\\mathcal Y} R(h)$" },
+  { q: "Quand $\\mathcal F$ grossit, que deviennent l'erreur d'estimation et d'approximation ?", a: "Estimation ↑, approximation ↓" },
+  { q: "Risque espéré ?", a: "$R(f) = \\mathbb{E}[\\ell(Y, f(X))]$" },
+  { q: "Risque empirique ?", a: "$\\hat R_n(f) = \\frac1n \\sum_{i=1}^n \\ell(y_i, f(x_i))$" },
+  { q: "Perte quadratique, absolue, zéro-un ?", a: "$(y-\\hat y)^2$ ; $|y-\\hat y|$ ; $\\mathbf 1\\{y\\neq \\hat y\\}$" },
+  { q: "Affine sans intercept (une variable) : estimateur des moindres carrés ?", a: "$w^* = \\dfrac{\\sum_i x_i y_i}{\\sum_i x_i^2}$" },
+  { q: "Régression linéaire multiple : équations normales et solution ?", a: "$X^TX\\,w = X^TY$, donc $w^* = (X^TX)^{-1}X^TY$ si $X^TX$ inversible" },
+  { q: "Intercept dans la régression affine ?", a: "$b^* = \\bar y - w^*\\bar x$" },
+  { q: "Régression polynomiale : forme de $f$ ?", a: "$f_w(x) = \\sum_{k=0}^d w_k x^k$ : régression linéaire sur $1, x, \\dots, x^d$" },
+  { q: "Perceptron à une couche ?", a: "$f(x) = \\sigma\\!\\left(b + \\sum_j w_j x_j\\right)$" },
+  { q: "Matrice de confusion : TP, FP, FN, TN ?", a: "Lignes = vérité, colonnes = prédiction. TP : positif→positif. FP : négatif→positif. FN : positif→négatif. TN : négatif→négatif" },
+  { q: "Exactitude (accuracy) ?", a: "$\\dfrac{TP+TN}{TP+TN+FP+FN}$" },
+  { q: "Rappel (recall) ?", a: "$\\dfrac{TP}{TP+FN}$" },
+  { q: "Précision ?", a: "$\\dfrac{TP}{TP+FP}$" },
+  { q: "Spécificité ?", a: "$\\dfrac{TN}{TN+FP}$" },
+  { q: "F1-score ?", a: "$\\dfrac{2TP}{2TP+FP+FN}$ (moyenne harmonique précision/rappel)" },
+  { q: "MSE et MAE ?", a: "$\\frac1T\\sum(y_i-\\hat y_i)^2$ ; $\\frac1T\\sum|y_i-\\hat y_i|$" },
+  { q: "k-NN : effet de $k$ petit, grand, et $k=n$ ?", a: "$k$ petit : variance élevée. $k$ grand : biais élevé. $k=n$ : prédiction constante (moyenne ou classe majoritaire)" },
+  { q: "Validation croisée à $K$ plis : procédure ?", a: "Découper en $K$ plis. Pour chaque pli : entraîner sur les $K-1$ autres, valider sur lui. Moyenner les $K$ erreurs, choisir le modèle minimal, évaluer le test une seule fois" },
+  { q: "Bienaymé–Chebyshev ?", a: "$P(|Z-\\mathbb E Z|\\ge\\varepsilon)\\le \\dfrac{\\mathrm{Var}(Z)}{\\varepsilon^2}$" }
+];
+
+let deck = [...CARDS];
+let i = 0;
+let flipped = false;
+
+function render() {
+  const c = deck[i];
+  document.getElementById('q').textContent = c.q;
+  document.getElementById('a').textContent = c.a;
+  document.getElementById('progress').textContent = (i + 1) + ' / ' + deck.length;
+  document.getElementById('prev').disabled = i === 0;
+  document.getElementById('next').disabled = i === deck.length - 1;
+  flipped = false;
+  document.getElementById('card').classList.remove('flipped');
+  renderMath();
+}
+
+function renderMath() {
+  if (window.renderMathInElement) {
+    renderMathInElement(document.getElementById('scene'), {
+      delimiters: [{left:'$$', right:'$$', display:true}, {left:'$', right:'$', display:false}],
+      throwOnError: false
+    });
+  }
+}
+
+function flip() {
+  flipped = !flipped;
+  document.getElementById('card').classList.toggle('flipped', flipped);
+}
+
+function go(d) {
+  i = Math.min(deck.length - 1, Math.max(0, i + d));
+  render();
+}
+
+function shuffle() {
+  deck = [...deck].sort(() => Math.random() - 0.5);
+  i = 0; render();
+}
+
+function restart() {
+  deck = [...CARDS]; i = 0; render();
+}
+
+// Swipe gauche/droite
+let x0 = null;
+const scene = document.getElementById('scene');
+scene.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, {passive:true});
+scene.addEventListener('touchend', e => {
+  if (x0 === null) return;
+  const dx = e.changedTouches[0].clientX - x0;
+  if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
+  x0 = null;
+});
+
+window.addEventListener('load', render);
+render();
+</script>
+</body>
+</html>
